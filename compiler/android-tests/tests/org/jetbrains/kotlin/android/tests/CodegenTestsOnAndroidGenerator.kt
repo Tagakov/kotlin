@@ -372,7 +372,12 @@ class CodegenTestsOnAndroidGenerator private constructor(private val pathManager
                     val compiler = if (kind.withReflection) reflectionFlavor else commmonFlavor
                     val compilerConfigurationProvider = services.compilerConfigurationProvider as CompilerConfigurationProviderImpl
                     val filesHolder = holders.getOrPut(key) {
-                        FilesWriter(compiler, compilerConfigurationProvider.createCompilerConfiguration(module)).also {
+                        FilesWriter(
+                            compiler,
+                            compilerConfigurationProvider.createCompilerConfiguration(module).apply {
+                                configureJdkClasspathRoots()
+                            }
+                        ).also {
                             println("Creating new configuration by $key")
                         }
                     }
