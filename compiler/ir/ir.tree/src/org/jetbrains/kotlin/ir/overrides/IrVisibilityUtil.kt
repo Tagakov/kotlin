@@ -40,13 +40,12 @@ fun findMemberWithMaxVisibility(members: Collection<IrOverridableMember>): IrOve
 }
 
 fun IrDeclarationWithVisibility.isEffectivelyPrivate(): Boolean {
-    fun DescriptorVisibility.isNonPrivate(): Boolean =
-        this == DescriptorVisibilities.PUBLIC
-                || this == DescriptorVisibilities.PROTECTED
-                || this == DescriptorVisibilities.INTERNAL
+    val isNonPrivate = visibility == DescriptorVisibilities.PUBLIC
+            || visibility == DescriptorVisibilities.PROTECTED
+            || visibility == DescriptorVisibilities.INTERNAL
 
     return when {
-        visibility.isNonPrivate() -> parentClassOrNull?.isEffectivelyPrivate() ?: false
+        isNonPrivate -> parentClassOrNull?.isEffectivelyPrivate() ?: false
 
         visibility == DescriptorVisibilities.INVISIBLE_FAKE -> {
             val overridesOnlyPrivateDeclarations = (this as? IrOverridableDeclaration<*>)

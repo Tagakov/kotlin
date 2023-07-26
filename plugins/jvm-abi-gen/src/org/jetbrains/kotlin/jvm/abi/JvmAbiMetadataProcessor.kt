@@ -20,7 +20,7 @@ import org.jetbrains.org.objectweb.asm.Opcodes
  * Wrap the visitor for a Kotlin Metadata annotation to strip out private and local
  * functions, properties, and type aliases as well as local delegated properties.
  */
-fun abiMetadataProcessor(annotationVisitor: AnnotationVisitor): AnnotationVisitor =
+fun abiMetadataProcessor(annotationVisitor: AnnotationVisitor, deleteNonPublicAbi: Boolean): AnnotationVisitor =
     kotlinClassHeaderVisitor { header ->
         // kotlinx-metadata only supports writing Kotlin metadata of version >= 1.4, so we need to
         // update the metadata version if we encounter older metadata annotations.
@@ -34,17 +34,17 @@ fun abiMetadataProcessor(annotationVisitor: AnnotationVisitor): AnnotationVisito
             when (val metadata = KotlinClassMetadata.read(header)) {
                 is KotlinClassMetadata.Class -> {
                     val klass = metadata.kmClass
-                    klass.removePrivateDeclarations()
+                    klass.removeNonAbiDeclarations(deleteNonPublicAbi)
                     KotlinClassMetadata.writeClass(klass, metadataVersion, header.extraInt)
                 }
                 is KotlinClassMetadata.FileFacade -> {
                     val pkg = metadata.kmPackage
-                    pkg.removePrivateDeclarations()
+                    pkg.removeNonAbiDeclarations(deleteNonPublicAbi)
                     KotlinClassMetadata.writeFileFacade(pkg, metadataVersion, header.extraInt)
                 }
                 is KotlinClassMetadata.MultiFileClassPart -> {
                     val pkg = metadata.kmPackage
-                    pkg.removePrivateDeclarations()
+                    pkg.removeNonAbiDeclarations(deleteNonPublicAbi)
                     KotlinClassMetadata.writeMultiFileClassPart(
                         pkg,
                         metadata.facadeClassName,
@@ -160,20 +160,26 @@ private fun AnnotationVisitor.visitKotlinMetadata(header: Metadata) {
     visitEnd()
 }
 
-private fun KmClass.removePrivateDeclarations() {
-    constructors.removeIf { it.visibility.isPrivate }
-    functions.removeIf { it.visibility.isPrivate }
-    properties.removeIf { it.visibility.isPrivate }
+private fun KmClass.removeNonAbiDeclarations(deleteNonPublicAbi: Boolean) {
+    constructors.removeIf { it.visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi) }
+    functions.removeIf { it.visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi) }
+    properties.removeIf { it.visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi) }
     localDelegatedProperties.clear()
     // TODO: do not serialize private type aliases once KT-17229 is fixed.
 }
 
-private fun KmPackage.removePrivateDeclarations() {
-    functions.removeIf { it.visibility.isPrivate }
-    properties.removeIf { it.visibility.isPrivate }
+private fun KmPackage.removeNonAbiDeclarations(deleteNonPublicAbi: Boolean) {
+    functions.removeIf { it.visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi) }
+    properties.removeIf { it.visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi) }
     localDelegatedProperties.clear()
     // TODO: do not serialize private type aliases once KT-17229 is fixed.
 }
 
-private val Visibility.isPrivate: Boolean
-    get() = this == Visibility.PRIVATE || this == Visibility.PRIVATE_TO_THIS || this == Visibility.LOCAL
+private fun Visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi: Boolean) = when {
+    this == Visibility.PRIVATE -> true
+    this == Visibility.PRIVATE_TO_THIS -> true
+    this == Visibility.LOCAL -> true
+    deleteNonPublicAbi && this == Visibility.INTERNAL -> true
+    else -> false
+}
+
