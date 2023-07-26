@@ -18,7 +18,11 @@ import org.jetbrains.org.objectweb.asm.Opcodes
  * Wrap the visitor for a Kotlin Metadata annotation to strip out private and local
  * functions, properties, and type aliases as well as local delegated properties.
  */
-fun abiMetadataProcessor(annotationVisitor: AnnotationVisitor): AnnotationVisitor =
+fun abiMetadataProcessor(
+    annotationVisitor: AnnotationVisitor,
+    classesToBeDeleted: Set<String>,
+    deleteNonPublicAbi: Boolean
+): AnnotationVisitor =
     kotlinClassHeaderVisitor { header ->
         // kotlinx-metadata only supports writing Kotlin metadata of version >= 1.4, so we need to
         // update the metadata version if we encounter older metadata annotations.
@@ -32,13 +36,13 @@ fun abiMetadataProcessor(annotationVisitor: AnnotationVisitor): AnnotationVisito
             KotlinClassMetadata.transform(header) { metadata ->
                 when (metadata) {
                     is KotlinClassMetadata.Class -> {
-                        metadata.kmClass.removePrivateDeclarations()
+                        metadata.kmClass.removeNonAbiDeclarations(classesToBeDeleted, deleteNonPublicAbi)
                     }
                     is KotlinClassMetadata.FileFacade -> {
-                        metadata.kmPackage.removePrivateDeclarations()
+                        metadata.kmPackage.removeNonAbiDeclarations(deleteNonPublicAbi)
                     }
                     is KotlinClassMetadata.MultiFileClassPart -> {
-                        metadata.kmPackage.removePrivateDeclarations()
+                        metadata.kmPackage.removeNonAbiDeclarations(deleteNonPublicAbi)
                     }
                     else -> Unit
                 }
@@ -149,30 +153,43 @@ private fun AnnotationVisitor.visitKotlinMetadata(header: Metadata) {
     visitEnd()
 }
 
-private fun KmClass.removePrivateDeclarations() {
-    constructors.removeIf { it.visibility.isPrivate }
-    (this as KmDeclarationContainer).removePrivateDeclarations()
+private fun KmClass.removeNonAbiDeclarations(classesToBeDeleted: Set<String>, deleteNonPublicAbi: Boolean) {
+    (this as KmDeclarationContainer).removeNonAbiDeclarations(deleteNonPublicAbi, copyFunShouldBeDeleted(deleteNonPublicAbi))
+    constructors.removeIf { it.visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi) }
+    nestedClasses.removeIf { "$name\$$it" in classesToBeDeleted }
+    companionObject = companionObject?.takeIf { "$name\$$it" !in classesToBeDeleted }
     localDelegatedProperties.clear()
     // TODO: do not serialize private type aliases once KT-17229 is fixed.
 }
 
-private fun KmPackage.removePrivateDeclarations() {
-    (this as KmDeclarationContainer).removePrivateDeclarations()
+private fun KmPackage.removeNonAbiDeclarations(deleteNonPublicAbi: Boolean) {
+    (this as KmDeclarationContainer).removeNonAbiDeclarations(deleteNonPublicAbi)
     localDelegatedProperties.clear()
     // TODO: do not serialize private type aliases once KT-17229 is fixed.
 }
 
-private fun KmDeclarationContainer.removePrivateDeclarations() {
-    functions.removeIf { it.visibility.isPrivate }
-    properties.removeIf { it.visibility.isPrivate }
-
-    for (property in properties) {
-        // Whether or not the *non-const* property is initialized by a compile-time constant is not a part of the ABI.
-        if (!property.isConst) {
-            property.hasConstant = false
-        }
-    }
+private fun KmDeclarationContainer.removeNonAbiDeclarations(
+    deleteNonPublicAbi: Boolean,
+    copyFunShoudBeDeleted: Boolean = false,
+) {
+    functions.removeIf { it.visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi) || (copyFunShoudBeDeleted && it.name == "copy") }
+    properties.removeIf { it.visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi) }
+    // Whether or not the *non-const* property is initialized by a compile-time constant is not a part of the ABI.
+    properties.asSequence().filter { !it.isConst }.forEach { it.hasConstant = false }
 }
 
-private val Visibility.isPrivate: Boolean
-    get() = this == Visibility.PRIVATE || this == Visibility.PRIVATE_TO_THIS || this == Visibility.LOCAL
+private fun Visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi: Boolean) = when (this) {
+    Visibility.PRIVATE -> true
+    Visibility.PRIVATE_TO_THIS -> true
+    Visibility.LOCAL -> true
+    Visibility.INTERNAL -> deleteNonPublicAbi
+    else -> false
+}
+
+private fun KmClass.copyFunShouldBeDeleted(deleteNonPublicAbi: Boolean) = deleteNonPublicAbi && isData &&//todo add extra FF?
+        constructors
+            .find { !it.isSecondary }
+            ?.visibility
+            ?.shouldBeRemovedFromAbi(true)
+        ?: false
+
