@@ -131,7 +131,8 @@ class JvmAbiOutputExtension(
                             }
 
                             // Strip private declarations from the Kotlin Metadata annotation.
-                            override fun visitAnnotation(descriptor: String?, visible: Boolean): AnnotationVisitor {
+                            override fun visitAnnotation(descriptor: String?, visible: Boolean): AnnotationVisitor? {
+                                if (deleteNonPublicAbi && descriptor == JvmAnnotationNames.SOURCE_DEBUG_EXTENSION_DESC) return null
                                 val delegate = super.visitAnnotation(descriptor, visible)
                                 if (descriptor != JvmAnnotationNames.METADATA_DESC)
                                     return delegate
