@@ -5,13 +5,10 @@
 
 package org.jetbrains.kotlin.jvm.abi
 
-import kotlinx.metadata.KmClass
-import kotlinx.metadata.KmPackage
-import kotlinx.metadata.Visibility
+import kotlinx.metadata.*
 import kotlinx.metadata.jvm.KotlinClassMetadata
 import kotlinx.metadata.jvm.Metadata
 import kotlinx.metadata.jvm.localDelegatedProperties
-import kotlinx.metadata.visibility
 import org.jetbrains.kotlin.load.java.JvmAnnotationNames.*
 import org.jetbrains.org.objectweb.asm.AnnotationVisitor
 import org.jetbrains.org.objectweb.asm.Opcodes
@@ -161,8 +158,9 @@ private fun AnnotationVisitor.visitKotlinMetadata(header: Metadata) {
 }
 
 private fun KmClass.removeNonAbiDeclarations(deleteNonPublicAbi: Boolean) {
+    val copyFunShoudBeDeleted = copyFunShouldBeDeleted(deleteNonPublicAbi)
     constructors.removeIf { it.visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi) }
-    functions.removeIf { it.visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi) }
+    functions.removeIf { it.visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi) || (it.name == "copy" && copyFunShoudBeDeleted) }
     properties.removeIf { it.visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi) }
     localDelegatedProperties.clear()
     // TODO: do not serialize private type aliases once KT-17229 is fixed.
@@ -182,4 +180,11 @@ private fun Visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi: Boolean) = whe
     deleteNonPublicAbi && this == Visibility.INTERNAL -> true
     else -> false
 }
+
+private fun KmClass.copyFunShouldBeDeleted(deleteNonPublicAbi: Boolean) = deleteNonPublicAbi && isData &&
+        constructors
+            .find { !it.isSecondary }
+            ?.visibility
+            ?.shouldBeRemovedFromAbi(true)
+        ?: false
 

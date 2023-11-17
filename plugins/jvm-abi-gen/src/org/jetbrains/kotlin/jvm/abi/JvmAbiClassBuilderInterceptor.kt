@@ -16,6 +16,7 @@ import org.jetbrains.kotlin.ir.declarations.IrField
 import org.jetbrains.kotlin.ir.declarations.IrFunction
 import org.jetbrains.kotlin.ir.overrides.isEffectivelyPrivate
 import org.jetbrains.kotlin.ir.util.parentClassOrNull
+import org.jetbrains.kotlin.ir.util.primaryConstructor
 import org.jetbrains.kotlin.load.java.JvmAnnotationNames
 import org.jetbrains.org.objectweb.asm.AnnotationVisitor
 import org.jetbrains.org.objectweb.asm.FieldVisitor
@@ -70,10 +71,13 @@ class JvmAbiClassBuilderInterceptor(private val deleteNonPublicAbi: Boolean) : C
         private val delegate: ClassGenerator,
         irClass: IrClass?,
     ) : ClassGenerator by delegate {
-        private val classIsNotInAbi = irClass?.isEffectivelyPrivate() ?: (!deleteNonPublicAbi || irClass?.isEffectivelyInternal() ?: false)
-        private val classVisibility = irClass?.visibility
-        private var keepEverything = false
 
+        private val classIsNotInAbi = irClass?.shouldBeRemovedFromAbi(deleteNonPublicAbi) ?: false
+        private val classVisibility = irClass?.visibility
+        private val primaryConstructorIsNotInAbi = irClass?.primaryConstructor?.shouldBeRemovedFromAbi(deleteNonPublicAbi) ?: false
+        private val isDataClass = irClass?.isData ?: false
+
+        private var keepEverything = false
         private lateinit var internalName: String
         private var localOrAnonymousClass = false
         private val memberInfos = mutableMapOf<Member, AbiMemberInfo>()
@@ -126,6 +130,12 @@ class JvmAbiClassBuilderInterceptor(private val deleteNonPublicAbi: Boolean) : C
 
             if (name == "<clinit>") {
                 return delegate.newMethod(declaration, access, name, desc, signature, exceptions)
+            }
+
+            if (isDataClass && (name == "copy" || name == "copy\$default")) {
+                if (primaryConstructorIsNotInAbi) {
+                    return delegate.newMethod(declaration, access, name, desc, signature, exceptions)
+                }
             }
 
             if (access and Opcodes.ACC_PRIVATE != 0
@@ -212,3 +222,6 @@ class JvmAbiClassBuilderInterceptor(private val deleteNonPublicAbi: Boolean) : C
 private fun IrDeclarationWithVisibility.isEffectivelyInternal(): Boolean = visibility == DescriptorVisibilities.INTERNAL ||
         parentClassOrNull?.isEffectivelyInternal()
         ?: false
+
+fun IrDeclarationWithVisibility.shouldBeRemovedFromAbi(deleteNonPublicAbi: Boolean) =
+    isEffectivelyPrivate() || (deleteNonPublicAbi && isEffectivelyInternal())
