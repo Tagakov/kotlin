@@ -136,7 +136,12 @@ class JvmAbiOutputExtension(
                                 val delegate = super.visitAnnotation(descriptor, visible)
                                 if (descriptor != JvmAnnotationNames.METADATA_DESC)
                                     return delegate
-                                return abiMetadataProcessor(delegate, deleteNonPublicAbi)
+
+                                val classesToBeDeleted = abiClassInfos.mapNotNullTo(mutableSetOf()) { (className, action) ->
+                                    className.takeIf { action == AbiClassInfo.Delete }
+                                }
+
+                                return abiMetadataProcessor(delegate, classesToBeDeleted, deleteNonPublicAbi)
                             }
 
                             override fun visitEnd() {}

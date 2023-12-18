@@ -17,7 +17,11 @@ import org.jetbrains.org.objectweb.asm.Opcodes
  * Wrap the visitor for a Kotlin Metadata annotation to strip out private and local
  * functions, properties, and type aliases as well as local delegated properties.
  */
-fun abiMetadataProcessor(annotationVisitor: AnnotationVisitor, deleteNonPublicAbi: Boolean): AnnotationVisitor =
+fun abiMetadataProcessor(
+    annotationVisitor: AnnotationVisitor,
+    classesToBeDeleted: Set<String>,
+    deleteNonPublicAbi: Boolean
+): AnnotationVisitor =
     kotlinClassHeaderVisitor { header ->
         // kotlinx-metadata only supports writing Kotlin metadata of version >= 1.4, so we need to
         // update the metadata version if we encounter older metadata annotations.
@@ -31,7 +35,7 @@ fun abiMetadataProcessor(annotationVisitor: AnnotationVisitor, deleteNonPublicAb
             when (val metadata = KotlinClassMetadata.read(header)) {
                 is KotlinClassMetadata.Class -> {
                     val klass = metadata.kmClass
-                    klass.removeNonAbiDeclarations(deleteNonPublicAbi)
+                    klass.removeNonAbiDeclarations(classesToBeDeleted, deleteNonPublicAbi)
                     KotlinClassMetadata.writeClass(klass, metadataVersion, header.extraInt)
                 }
                 is KotlinClassMetadata.FileFacade -> {
@@ -157,11 +161,12 @@ private fun AnnotationVisitor.visitKotlinMetadata(header: Metadata) {
     visitEnd()
 }
 
-private fun KmClass.removeNonAbiDeclarations(deleteNonPublicAbi: Boolean) {
+private fun KmClass.removeNonAbiDeclarations(classesToBeDeleted: Set<String>, deleteNonPublicAbi: Boolean) {
     val copyFunShoudBeDeleted = copyFunShouldBeDeleted(deleteNonPublicAbi)
     constructors.removeIf { it.visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi) }
     functions.removeIf { it.visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi) || (it.name == "copy" && copyFunShoudBeDeleted) }
     properties.removeIf { it.visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi) }
+    nestedClasses.removeIf { "$name${'$'}$it" in classesToBeDeleted }
     localDelegatedProperties.clear()
     // TODO: do not serialize private type aliases once KT-17229 is fixed.
 }
