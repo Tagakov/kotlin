@@ -166,7 +166,8 @@ private fun KmClass.removeNonAbiDeclarations(classesToBeDeleted: Set<String>, de
     constructors.removeIf { it.visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi) }
     functions.removeIf { it.visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi) || (it.name == "copy" && copyFunShoudBeDeleted) }
     properties.removeIf { it.visibility.shouldBeRemovedFromAbi(deleteNonPublicAbi) }
-    nestedClasses.removeIf { "$name${'$'}$it" in classesToBeDeleted }
+    nestedClasses.removeIf { "$name\$$it" in classesToBeDeleted }
+    companionObject = companionObject?.takeIf { "$name\$$it" !in classesToBeDeleted }
     localDelegatedProperties.clear()
     // TODO: do not serialize private type aliases once KT-17229 is fixed.
 }
