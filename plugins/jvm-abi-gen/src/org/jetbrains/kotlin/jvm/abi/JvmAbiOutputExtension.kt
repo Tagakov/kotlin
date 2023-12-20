@@ -71,6 +71,7 @@ class JvmAbiOutputExtension(
                     is AbiClassInfo.Keep -> outputFile // Copy verbatim
                     is AbiClassInfo.Strip -> {
                         val memberInfo = abiInfo.memberInfo
+                        val hasInlineFunctions = abiInfo.hasInlineFunctions
                         val innerClassesToKeep = mutableSetOf<String>()
                         val writer = ClassWriter(0)
                         val remapper = ClassRemapper(writer, object : Remapper() {
@@ -131,7 +132,7 @@ class JvmAbiOutputExtension(
                             // Strip source debug extensions if there are no inline functions.
                             override fun visitSource(source: String?, debug: String?) {
                                 // TODO Normalize and strip unused line numbers from SourceDebugExtensions
-                                if (memberInfo.values.any { it == AbiMemberInfo.KEEP }) {
+                                if (hasInlineFunctions) {
                                     super.visitSource(source, debug)
                                 } else {
                                     super.visitSource(source, null)

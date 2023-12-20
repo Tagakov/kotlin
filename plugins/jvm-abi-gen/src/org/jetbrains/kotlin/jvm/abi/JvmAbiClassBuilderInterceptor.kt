@@ -32,7 +32,7 @@ enum class AbiMemberInfo {
 
 sealed class AbiClassInfo {
     data object Keep : AbiClassInfo()
-    class Strip(val memberInfo: Map<Member, AbiMemberInfo>) : AbiClassInfo()
+    class Strip(val memberInfo: Map<Member, AbiMemberInfo>, val hasInlineFunctions: Boolean) : AbiClassInfo()
     data object Delete : AbiClassInfo()
 }
 
@@ -73,13 +73,13 @@ class JvmAbiClassBuilderInterceptor(private val deleteNonPublicAbi: Boolean) : C
     ) : ClassGenerator by delegate {
 
         private val classIsNotInAbi = irClass?.shouldBeRemovedFromAbi(deleteNonPublicAbi) ?: false
-        private val classVisibility = irClass?.visibility
         private val primaryConstructorIsNotInAbi = irClass?.primaryConstructor?.shouldBeRemovedFromAbi(deleteNonPublicAbi) ?: false
         private val isDataClass = irClass?.isData ?: false
 
         private var keepEverything = false
         private lateinit var internalName: String
         private var localOrAnonymousClass = false
+        private var hasInlineFunctions = false
         private val memberInfos = mutableMapOf<Member, AbiMemberInfo>()
         private val maskedMethods = mutableSetOf<Member>() // Methods which should be stripped even if they are marked as KEEP
 
@@ -149,12 +149,12 @@ class JvmAbiClassBuilderInterceptor(private val deleteNonPublicAbi: Boolean) : C
                 return delegate.newMethod(declaration, access, name, desc, signature, exceptions)
             }
 
+            val key = Member(name, desc)
+
             if (access and (Opcodes.ACC_NATIVE or Opcodes.ACC_ABSTRACT) != 0) {
-                memberInfos[Member(name, desc)] = AbiMemberInfo.KEEP
+                memberInfos[key] = AbiMemberInfo.KEEP
                 return delegate.newMethod(declaration, access, name, desc, signature, exceptions)
             }
-
-            val isPrivateClass = classVisibility != null && DescriptorVisibilities.isPrivate(classVisibility)
 
             // inline suspend functions are a special case: Unless they use reified type parameters,
             // we will transform the original method and generate a $$forInline method for the inliner.
@@ -162,9 +162,9 @@ class JvmAbiClassBuilderInterceptor(private val deleteNonPublicAbi: Boolean) : C
             // metadata to indicate this (the inliner simply first checks for a method such as `f$$forInline`
             // and then checks for `f` if this method doesn't exist) so we have to remember to strip the
             // original methods if there was a $$forInline version.
-            if (name.endsWith(FOR_INLINE_SUFFIX) && !isPrivateClass) {
-                memberInfos[Member(name, desc)] = AbiMemberInfo.KEEP
-                maskedMethods += Member(name.removeSuffix(FOR_INLINE_SUFFIX), desc)
+            if (name.endsWith(FOR_INLINE_SUFFIX) && !classIsNotInAbi) {
+                memberInfos[key] = AbiMemberInfo.KEEP
+                maskedMethods += key.copy(name = name.removeSuffix(FOR_INLINE_SUFFIX))
                 return delegate.newMethod(declaration, access, name, desc, signature, exceptions)
             }
 
@@ -173,10 +173,11 @@ class JvmAbiClassBuilderInterceptor(private val deleteNonPublicAbi: Boolean) : C
             }
 
             // Copy inline functions verbatim
-            if (declaration?.isInline == true && !isPrivateClass) {
-                memberInfos[Member(name, desc)] = AbiMemberInfo.KEEP
+            if (declaration?.isInline == true && !classIsNotInAbi) {
+                hasInlineFunctions = true
+                memberInfos[key] = AbiMemberInfo.KEEP
             } else {
-                memberInfos[Member(name, desc)] = AbiMemberInfo.STRIP
+                memberInfos[key] = AbiMemberInfo.STRIP
             }
             return delegate.newMethod(declaration, access, name, desc, signature, exceptions)
         }
@@ -202,13 +203,14 @@ class JvmAbiClassBuilderInterceptor(private val deleteNonPublicAbi: Boolean) : C
             // strip non-inline methods from all other classes.
             abiClassInfo[internalName] = when {
                 keepEverything -> AbiClassInfo.Keep
-                deleteNonPublicAbi && classIsNotInAbi -> AbiClassInfo.Delete
-                localOrAnonymousClass || isWhenMappingClass -> AbiClassInfo.Delete
+                classIsNotInAbi -> AbiClassInfo.Delete
+                localOrAnonymousClass -> AbiClassInfo.Delete
+                isWhenMappingClass -> AbiClassInfo.Delete
                 else -> {
                     for (method in maskedMethods) {
                         memberInfos[method] = AbiMemberInfo.STRIP
                     }
-                    AbiClassInfo.Strip(memberInfos)
+                    AbiClassInfo.Strip(memberInfos, hasInlineFunctions)
                 }
             }
             delegate.done(generateSmapCopyToAnnotation)
