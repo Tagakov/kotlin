@@ -13,38 +13,16 @@ public class test/BaseClass {
     public method <init>(): void
     public method getBaseClassPublicVal(): int
     public method baseClassPublicFun(): int
-    public final method getBaseClassInternalVal$main(): int
-    public final method baseClassInternalFun$main(): int
     protected final method getBaseClassProtectedVal(): int
     protected final method baseClassProtectedFun(): int
 }
 @kotlin.Metadata
-public final class test/Class$NestedInnerClass$NestedNestedInnerClass {
-    // source: 'classes.kt'
-    private final inner class test/Class$NestedInnerClass
-    public final inner class test/Class$NestedInnerClass$NestedNestedInnerClass
-    public method <init>(): void
-}
-@kotlin.Metadata
-final class test/Class$NestedInnerClass {
-    // source: 'classes.kt'
-    private final inner class test/Class$NestedInnerClass
-    public final inner class test/Class$NestedInnerClass$NestedNestedInnerClass
-    public method <init>(): void
-}
-@kotlin.Metadata
 public final class test/Class {
     // source: 'classes.kt'
-    private final inner class test/Class$NestedInnerClass
     public method <init>(): void
     public final method classPublicMethod(): void
 }
 @kotlin.Metadata
 public interface test/Interface {
     // source: 'classes.kt'
-}
-@kotlin.Metadata
-final class test/PrivateClass {
-    // source: 'classes.kt'
-    public method <init>(): void
 }

@@ -16,6 +16,10 @@ open class BaseClass {
     private val baseClassPrivateVal: Int = 6
     private fun baseClassPrivateFun(): Int = 7
 
+    internal inline fun test() {
+
+    }
+
     companion object {
         const val basePublicConst: Int = 8
         private const val basePrivateConst: Int = 9
